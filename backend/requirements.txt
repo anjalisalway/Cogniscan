@@ -1,0 +1,11 @@
+uvicorn 
+langchain
+sentence-transformer
+networkx
+PyMuPdf
+transformers
+python-dotenv
+Pillow
+pyvis
+requests
+fastapi
