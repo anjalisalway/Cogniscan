@@ -192,8 +192,6 @@ def main() -> None:
     result = extract(args.pdf, args.output)
     print(f"Saved → {args.output}")
  
-    if args.debug:
-        _print_summary(result)
  
  
 if __name__ == "__main__":
