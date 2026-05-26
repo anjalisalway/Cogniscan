@@ -2,3 +2,4 @@
 venv/
 sample.pdf
 processed/
+.DS_Store
