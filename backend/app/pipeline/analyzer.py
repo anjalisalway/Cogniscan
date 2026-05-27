@@ -1,29 +1,3 @@
-"""
-analyzer.py — Day 4: Cognitive Load Analyzer
-=============================================
-Scores each chunk across three difficulty dimensions:
-
-  linguistic  — sentence complexity + dependency depth
-  semantic    — vocabulary density + rare-word ratio
-  structural  — paragraph variance + heading/length signals
-
-Usage
------
-  # Analyze an existing chunks.json (produced by chunker.py)
-  python analyzer.py processed/chunks.json
-
-  # Save annotated output to a custom path
-  python analyzer.py processed/chunks.json --output processed/analyzed_chunks.json
-
-  # Pretty-print a summary table (no file write)
-  python analyzer.py processed/chunks.json --summary
-
-Install
--------
-  pip install spacy textstat
-  python -m spacy download en_core_web_sm
-"""
-
 from __future__ import annotations
 
 import json
@@ -36,32 +10,27 @@ from typing import Optional
 import spacy
 import textstat
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
 SPACY_MODEL = "en_core_web_sm"
 
-# Weights within each sub-score (must sum to 1.0 per group)
+
 LINGUISTIC_WEIGHTS = {
-    "flesch_kincaid": 0.35,   # grade-level readability
-    "avg_sentence_len": 0.30,  # words per sentence (normalized)
-    "dep_depth": 0.35,         # average parse-tree depth
+    "flesch_kincaid": 0.35,   
+    "avg_sentence_len": 0.30,  
+    "dep_depth": 0.35,        
 }
 
 SEMANTIC_WEIGHTS = {
-    "type_token_ratio": 0.40,  # lexical diversity (unique / total words)
-    "rare_word_ratio": 0.35,   # words not in spaCy's top-N vocab
-    "entity_density": 0.25,    # named entities per sentence
+    "type_token_ratio": 0.40,  
+    "rare_word_ratio": 0.35,   
+    "entity_density": 0.25,    
 }
 
 STRUCTURAL_WEIGHTS = {
-    "paragraph_variance": 0.45,  # std-dev of sentence lengths within chunk
-    "heading_depth_penalty": 0.25,  # deeper headings → slightly harder context
-    "length_penalty": 0.30,      # very long chunks add cognitive overhead
+    "paragraph_variance": 0.45,  
+    "heading_depth_penalty": 0.25, 
+    "length_penalty": 0.30,      
 }
 
-# Normalisation reference points (tuned empirically; adjust as needed)
 MAX_FK_GRADE       = 18.0   # Flesch-Kincaid grade 18 → score 1.0
 MAX_AVG_SENT_LEN   = 40.0   # 40 words/sentence → score 1.0
 MAX_DEP_DEPTH      = 10.0   # parse depth 10 → score 1.0
@@ -69,18 +38,12 @@ MAX_ENTITY_DENSITY = 3.0    # 3 entities/sentence → score 1.0
 MAX_PARA_VARIANCE  = 20.0   # std-dev of 20 words → score 1.0
 MAX_TOKENS_PENALTY = 400.0  # token count at which length penalty maxes out
 
-
-# ---------------------------------------------------------------------------
-# Data model
-# ---------------------------------------------------------------------------
-
 @dataclass
 class DifficultyProfile:
-    linguistic : float   # 0.0 – 1.0
-    semantic   : float   # 0.0 – 1.0
-    structural : float   # 0.0 – 1.0
+    linguistic : float   
+    semantic   : float  
+    structural : float   
 
-    # Raw sub-scores (kept for transparency / debugging)
     flesch_kincaid    : float = 0.0
     avg_sentence_len  : float = 0.0
     dep_depth         : float = 0.0
@@ -110,10 +73,6 @@ class DifficultyProfile:
         }
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, value))
 
@@ -139,10 +98,6 @@ def _sentence_dep_depth(sent) -> float:
     return statistics.mean(depths) if depths else 0.0
 
 
-# ---------------------------------------------------------------------------
-# Core scorer
-# ---------------------------------------------------------------------------
-
 class CognitiveLoadAnalyzer:
     """
     Wraps a spaCy pipeline and scores chunks for cognitive difficulty.
@@ -156,18 +111,11 @@ class CognitiveLoadAnalyzer:
     def __init__(self, model: str = SPACY_MODEL) -> None:
         print(f"Loading spaCy model: {model} …")
         self.nlp = spacy.load(model)
-
-        # Build a set of common English words from spaCy's vocab
-        # (words with a positive probability are "known")
         self._common_vocab: set[str] = {
             lex.text.lower()
             for lex in self.nlp.vocab
             if lex.prob > -15 and lex.is_alpha
         }
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def score(self, text: str, heading: Optional[str] = None,
               heading_level: Optional[int] = None,
@@ -178,7 +126,6 @@ class CognitiveLoadAnalyzer:
         doc = self.nlp(text)
         sents = list(doc.sents)
 
-        # ---- Linguistic -----------------------------------------------
         fk_raw          = textstat.flesch_kincaid_grade(text)
         fk_score        = _normalise(max(fk_raw, 0), MAX_FK_GRADE)
 
@@ -196,24 +143,21 @@ class CognitiveLoadAnalyzer:
             + LINGUISTIC_WEIGHTS["dep_depth"]        * dep_score
         )
 
-        # ---- Semantic -------------------------------------------------
         alpha_tokens   = [t.text.lower() for t in doc if t.is_alpha]
         total_words    = len(alpha_tokens)
 
-        # Type-token ratio (lexical diversity)
         if total_words > 0:
             ttr = len(set(alpha_tokens)) / total_words
         else:
             ttr = 0.0
-        # High TTR = more unique words = harder; already in [0,1]
+       
         ttr_score = _clamp(ttr)
 
-        # Rare-word ratio (not in common spaCy vocab)
         rare_count  = sum(1 for w in alpha_tokens if w not in self._common_vocab)
         rare_ratio  = rare_count / total_words if total_words > 0 else 0.0
         rare_score  = _clamp(rare_ratio)
 
-        # Named entity density (entities per sentence)
+
         n_ents      = len(doc.ents)
         n_sents     = len(sents) if sents else 1
         ent_density = n_ents / n_sents
@@ -225,21 +169,17 @@ class CognitiveLoadAnalyzer:
             + SEMANTIC_WEIGHTS["entity_density"]   * ent_score
         )
 
-        # ---- Structural -----------------------------------------------
-        # Paragraph variance: std-dev of sentence lengths
         if len(sent_lengths) > 1:
             para_var   = statistics.stdev(sent_lengths)
         else:
             para_var   = 0.0
         para_score = _normalise(para_var, MAX_PARA_VARIANCE)
 
-        # Heading depth penalty: h3 > h2 > h1 (deeper = more nested context)
         if heading_level is not None:
             hdg_penalty = _normalise(heading_level, 3)
         else:
             hdg_penalty = 0.0
 
-        # Length penalty: very long chunks are harder to process in one read
         len_penalty = _normalise(token_count, MAX_TOKENS_PENALTY)
 
         structural = (
@@ -283,13 +223,8 @@ class CognitiveLoadAnalyzer:
             if idx % 50 == 0 or idx == n:
                 print(f"  {idx}/{n} done", end="\r")
 
-        print()  # newline after progress
+        print() 
         return chunks
-
-
-# ---------------------------------------------------------------------------
-# Corpus-level statistics
-# ---------------------------------------------------------------------------
 
 def corpus_stats(chunks: list[dict]) -> dict:
     """
@@ -311,10 +246,6 @@ def corpus_stats(chunks: list[dict]) -> dict:
 
     return stats
 
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 def _print_summary(chunks: list[dict]) -> None:
     dims = ("linguistic", "semantic", "structural")
